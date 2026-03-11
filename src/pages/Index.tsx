@@ -8,10 +8,12 @@ type Row = Record<string, any> & { error?: string };
 function num(v: any): number | null {
   if (v == null) return null;
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
+
   const s = String(v)
     .replace(/\./g, "")
     .replace(",", ".")
     .replace(/[^\d.-]/g, "");
+
   const n = Number(s);
   return Number.isFinite(n) ? n : null;
 }
@@ -41,8 +43,9 @@ const COLORS = {
   text: "#E7EAF0",
   muted: "rgba(231,234,240,0.65)",
   accent: "#2F49FF",
+  accentSoft: "rgba(47,73,255,0.14)",
   accent2: "#5B6CFF",
-  danger: "#ff5b7a",
+  rowHover: "rgba(255,255,255,0.03)",
 };
 
 function Card({
@@ -88,7 +91,10 @@ export default function Index() {
   const [municipio, setMunicipio] = useState<string>("");
 
   const [data, setData] = useState<Row | null>(null);
+  const [tablaProvincia, setTablaProvincia] = useState<Row[]>([]);
+
   const [loading, setLoading] = useState(false);
+  const [loadingTabla, setLoadingTabla] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   // 1) cargar provincias
@@ -107,6 +113,7 @@ export default function Index() {
   // 2) cargar municipios al cambiar provincia
   useEffect(() => {
     if (!provincia) return;
+
     setMunicipios([]);
     setMunicipio("");
     setData(null);
@@ -145,9 +152,27 @@ export default function Index() {
       .finally(() => setLoading(false));
   }, [provincia, municipio]);
 
-  // columnas exactas del sheet
+  // 4) cargar tabla resumen por provincia
+  useEffect(() => {
+    if (!provincia) return;
+
+    setLoadingTabla(true);
+
+    fetch(`${API_BASE}?tabla=1&provincia=${encodeURIComponent(provincia)}`)
+      .then((r) => r.json())
+      .then((json) => {
+        setTablaProvincia(json?.items || []);
+      })
+      .catch(() => setTablaProvincia([]))
+      .finally(() => setLoadingTabla(false));
+  }, [provincia]);
+
+  // métricas del municipio seleccionado
   const dens2025 = num(data?.["Densidad 2025"]);
   const dens2022 = num(data?.["Densidad 2022"]);
+
+  // OJO: si tu API devuelve dos columnas "Renta", puede quedarse con la última.
+  // Por ahora usamos la que llegue.
   const renta = num(data?.["Renta"]);
   const clubes = num(data?.["Clubes"]);
   const precioSueloNum = num(data?.["Precio suelo n"]) ?? num(data?.["Precio suelo"]);
@@ -160,6 +185,14 @@ export default function Index() {
   }, [dens2025, dens2022]);
 
   const maxD = useMemo(() => Math.max(dens2025 ?? 0, dens2022 ?? 0), [dens2025, dens2022]);
+
+  const tablaOrdenada = useMemo(() => {
+    return [...tablaProvincia].sort((a, b) => {
+      const aVal = num(a["Habitantes por club"]) ?? -Infinity;
+      const bVal = num(b["Habitantes por club"]) ?? -Infinity;
+      return bVal - aVal;
+    });
+  }, [tablaProvincia]);
 
   return (
     <div
@@ -175,7 +208,7 @@ export default function Index() {
         fontFamily: "system-ui",
       }}
     >
-      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "28px 18px" }}>
+      <div style={{ maxWidth: 1280, margin: "0 auto", padding: "28px 18px 40px" }}>
         {/* Header */}
         <div
           style={{
@@ -189,7 +222,7 @@ export default function Index() {
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <img
               src="/padelitic-logo.png"
-              alt="Padelitic"
+              alt="Padeltic"
               style={{ height: 34, width: "auto" }}
             />
             <div>
@@ -252,7 +285,7 @@ export default function Index() {
 
         {/* Status */}
         <div style={{ marginTop: 14, marginBottom: 12 }}>
-          {loading && <div style={{ color: COLORS.muted, fontSize: 13 }}>Cargando…</div>}
+          {loading && <div style={{ color: COLORS.muted, fontSize: 13 }}>Cargando municipio…</div>}
           {err && <div style={{ color: "#ff95a7", fontSize: 13 }}>{err}</div>}
         </div>
 
@@ -272,7 +305,9 @@ export default function Index() {
 
           <div style={{ gridColumn: "span 4" }}>
             <Card title="Clubes">
-              <div style={{ fontSize: 28, fontWeight: 850 }}>{clubes == null ? "—" : clubes}</div>
+              <div style={{ fontSize: 28, fontWeight: 850 }}>
+                {clubes == null ? "—" : clubes}
+              </div>
             </Card>
           </div>
 
@@ -296,7 +331,6 @@ export default function Index() {
             </Card>
           </div>
 
-          {/* Variación densidad */}
           <div style={{ gridColumn: "span 12" }}>
             <Card title="Variación densidad" subtitle="2025 vs 2022">
               <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "baseline" }}>
@@ -316,7 +350,9 @@ export default function Index() {
                   <div style={{ fontSize: 24, fontWeight: 850 }}>
                     {densDelta == null ? "—" : `${densDelta >= 0 ? "+" : ""}${densDelta.toFixed(1)}%`}
                   </div>
-                  <div style={{ color: COLORS.muted, fontSize: 12, marginTop: 6 }}>Variación</div>
+                  <div style={{ color: COLORS.muted, fontSize: 12, marginTop: 6 }}>
+                    Variación
+                  </div>
                 </div>
               </div>
 
@@ -359,6 +395,110 @@ export default function Index() {
               ) : null}
             </Card>
           </div>
+        </div>
+
+        {/* Tabla resumen por provincia */}
+        <div style={{ marginTop: 18 }}>
+          <Card title={`Resumen ${provincia}`} subtitle="Municipios de la provincia">
+            <div style={{ marginBottom: 12, color: COLORS.muted, fontSize: 13 }}>
+              {loadingTabla
+                ? "Cargando tabla…"
+                : `${tablaOrdenada.length} municipios cargados`}
+            </div>
+
+            <div
+              style={{
+                overflowX: "auto",
+                border: `1px solid ${COLORS.border}`,
+                borderRadius: 12,
+              }}
+            >
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: 14,
+                  color: COLORS.text,
+                  minWidth: 900,
+                }}
+              >
+                <thead
+                  style={{
+                    background: "rgba(255,255,255,0.03)",
+                    position: "sticky",
+                    top: 0,
+                  }}
+                >
+                  <tr style={{ textAlign: "left" }}>
+                    <th style={{ padding: "12px 14px", borderBottom: `1px solid ${COLORS.border}` }}>
+                      Municipio
+                    </th>
+                    <th style={{ padding: "12px 14px", borderBottom: `1px solid ${COLORS.border}` }}>
+                      Habitantes por club
+                    </th>
+                    <th style={{ padding: "12px 14px", borderBottom: `1px solid ${COLORS.border}` }}>
+                      Precio suelo
+                    </th>
+                    <th style={{ padding: "12px 14px", borderBottom: `1px solid ${COLORS.border}` }}>
+                      Renta
+                    </th>
+                    <th style={{ padding: "12px 14px", borderBottom: `1px solid ${COLORS.border}` }}>
+                      % Ocupación
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {tablaOrdenada.map((row, i) => {
+                    const isSelected =
+                      String(row["MUNICIPIO"] || "").trim().toUpperCase() ===
+                      String(municipio || "").trim().toUpperCase();
+
+                    const habClub = num(row["Habitantes por club"]);
+                    const precio =
+                      num(row["Precio suelo n"]) ?? num(row["Precio suelo"]);
+                    const rentaRow = num(row["Renta"]);
+                    const ocup = num(row["% Ocupacion"]);
+
+                    return (
+                      <tr
+                        key={`${row["MUNICIPIO"]}-${i}`}
+                        style={{
+                          background: isSelected ? COLORS.accentSoft : "transparent",
+                          borderBottom: `1px solid ${COLORS.border}`,
+                        }}
+                      >
+                        <td style={{ padding: "12px 14px", fontWeight: isSelected ? 700 : 500 }}>
+                          {row["MUNICIPIO"]}
+                        </td>
+                        <td style={{ padding: "12px 14px" }}>{fmtInt(habClub)}</td>
+                        <td style={{ padding: "12px 14px" }}>{fmtEURm2(precio)}</td>
+                        <td style={{ padding: "12px 14px" }}>{fmtEUR(rentaRow)}</td>
+                        <td style={{ padding: "12px 14px" }}>
+                          {ocup == null ? "—" : `${Math.round(ocup * 100)}%`}
+                        </td>
+                      </tr>
+                    );
+                  })}
+
+                  {!tablaOrdenada.length && !loadingTabla && (
+                    <tr>
+                      <td
+                        colSpan={5}
+                        style={{
+                          padding: "16px 14px",
+                          color: COLORS.muted,
+                          textAlign: "center",
+                        }}
+                      >
+                        No hay datos para esta provincia.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Card>
         </div>
       </div>
     </div>
