@@ -227,7 +227,7 @@ export default function Index() {
             />
             <div>
               <h1 style={{ margin: 0, fontSize: 22, letterSpacing: 0.2 }}>
-                Investment Dashboard
+                Investment Dashboard TEST
               </h1>
               <div style={{ color: COLORS.muted, marginTop: 6, fontSize: 13 }}>
                 Provincia → Municipio
